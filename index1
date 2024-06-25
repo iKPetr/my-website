@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Шахматная игра с фруктами</title>
+    <style>
+        canvas {
+            border: 1px solid black;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas" width="800" height="600"></canvas>
+    <script>
+        // Константы
+        const SCREEN_WIDTH = 800;
+        const SCREEN_HEIGHT = 600;
+        const TILE_SIZE = 50;
+        const PLAYER_SIZE = 40;
+        const WORLD_SIZE = 40;
+        const MAX_HEALTH = 100;
+        const HEALTH_DECREASE = 1;
+        const HEALTH_INCREASE = 20;
+        const FRUIT_REGROW_TIME = 10000;
+        const SOIL_PERCENTAGE = 0.2;
+        const FRUIT_GROW_CHANCE = 0.5;
+        const MAX_BACKPACK_SIZE = 5;
+        const MAX_STACK_SIZE = 10;
+        const BACKPACK_SLOT_SIZE = 60;
+        const BACKPACK_PADDING = 10;
+        const BACKPACK_COLS = 5;
+        const BACKPACK_ROWS = 1;
+
+        // Цвета
+        const COLORS = {
+            WHITE: "rgb(255, 255, 255)",
+            BLACK: "rgb(0, 0, 0)",
+            RED: "rgb(255, 0, 0)",
+            GREEN: "rgb(0, 255, 0)",
+            BLUE: "rgb(0, 0, 255)",
+            LIGHT_GRAY: "rgb(220, 220, 220)",
+            DARK_GRAY: "rgb(150, 150, 150)",
+            SOIL_COLOR: "rgb(100, 70, 50)"
+        };
+
+        class Player {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.health = MAX_HEALTH;
+                this.backpack = new Array(MAX_BACKPACK_SIZE).fill(0);
+            }
+
+            move(dx, dy, world) {
+                const newX = this.x + dx;
+                const newY = this.y + dy;
+                if (newX >= 0 && newX < WORLD_SIZE && newY >= 0 && newY < WORLD_SIZE) {
+                    this.x = newX;
+                    this.y = newY;
+                    world.setTargetOffset(this.x, this.y);
+                    this.health = Math.max(0, this.health - HEALTH_DECREASE);
+                }
+            }
+
+            collectFruit() {
+                for (let i = 0; i < MAX_BACKPACK_SIZE; i++) {
+                    if (this.backpack[i] < MAX_STACK_SIZE) {
+                        this.backpack[i]++;
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            eatFruit(slot) {
+                if (this.backpack[slot] > 0) {
+                    this.backpack[slot]--;
+                    this.health = Math.min(MAX_HEALTH, this.health + HEALTH_INCREASE);
+                    return true;
+                }
+                return false;
+            }
+        }
+
+        class Fruit {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.regrowTime = null;
+            }
+
+            collect(currentTime) {
+                this.regrowTime = currentTime + FRUIT_REGROW_TIME;
+            }
+
+            shouldRegrow(currentTime) {
+                return this.regrowTime !== null && currentTime >= this.regrowTime;
+            }
+        }
+
+        class World {
+            constructor() {
+                this.offsetX = 0;
+                this.offsetY = 0;
+                this.targetOffsetX = 0;
+                this.targetOffsetY = 0;
+                this.tiles = Array(WORLD_SIZE).fill().map(() => Array(WORLD_SIZE).fill(0));
+                this.fruits = [];
+                this.generateWorld();
+            }
+
+            generateWorld() {
+                const soilTiles = Math.floor(WORLD_SIZE * WORLD_SIZE * SOIL_PERCENTAGE);
+                for (let i = 0; i < soilTiles; i++) {
+                    const x = Math.floor(Math.random() * WORLD_SIZE);
+                    const y = Math.floor(Math.random() * WORLD_SIZE);
+                    this.tiles[y][x] = 1;
+                    if (Math.random() < FRUIT_GROW_CHANCE) {
+                        this.fruits.push(new Fruit(x, y));
+                    }
+                }
+            }
+
+            setTargetOffset(playerX, playerY) {
+                this.targetOffsetX = playerX * TILE_SIZE - SCREEN_WIDTH / 2 + TILE_SIZE / 2;
+                this.targetOffsetY = playerY * TILE_SIZE - SCREEN_HEIGHT / 2 + TILE_SIZE / 2;
+            }
+
+            update(currentTime) {
+                this.offsetX += (this.targetOffsetX - this.offsetX) * 0.1;
+                this.offsetY += (this.targetOffsetY - this.offsetY) * 0.1;
+
+                this.fruits.forEach(fruit => {
+                    if (fruit.shouldRegrow(currentTime)) {
+                        fruit.regrowTime = null;
+                    }
+                });
+            }
+
+            draw(ctx) {
+                for (let y = 0; y < WORLD_SIZE; y++) {
+                    for (let x = 0; x < WORLD_SIZE; x++) {
+                        const rect = {
+                            x: x * TILE_SIZE - this.offsetX,
+                            y: y * TILE_SIZE - this.offsetY,
+                            width: TILE_SIZE,
+                            height: TILE_SIZE
+                        };
+                        if (this.isRectVisible(rect)) {
+                            if (this.tiles[y][x] === 1) {
+                                ctx.fillStyle = COLORS.SOIL_COLOR;
+                            } else {
+                                ctx.fillStyle = (x + y) % 2 === 0 ? COLORS.LIGHT_GRAY : COLORS.DARK_GRAY;
+                            }
+                            ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+                        }
+                    }
+                }
+
+                this.fruits.forEach(fruit => {
+                    if (fruit.regrowTime === null) {
+                        const fruitRect = {
+                            x: fruit.x * TILE_SIZE - this.offsetX + (TILE_SIZE - PLAYER_SIZE) / 2,
+                            y: fruit.y * TILE_SIZE - this.offsetY + (TILE_SIZE - PLAYER_SIZE) / 2,
+                            width: PLAYER_SIZE,
+                            height: PLAYER_SIZE
+                        };
+                        if (this.isRectVisible(fruitRect)) {
+                            ctx.fillStyle = COLORS.GREEN;
+                            ctx.fillRect(fruitRect.x, fruitRect.y, fruitRect.width, fruitRect.height);
+                        }
+                    }
+                });
+            }
+
+            isRectVisible(rect) {
+                return rect.x < SCREEN_WIDTH && rect.x + rect.width > 0 &&
+                       rect.y < SCREEN_HEIGHT && rect.y + rect.height > 0;
+            }
+        }
+
+        class Game {
+            constructor() {
+                this.canvas = document.getElementById('gameCanvas');
+                this.ctx = this.canvas.getContext('2d');
+                this.world = new World();
+                this.player = new Player(Math.floor(WORLD_SIZE / 2), Math.floor(WORLD_SIZE / 2));
+                this.world.setTargetOffset(this.player.x, this.player.y);
+                this.showBackpack = false;
+                this.keys = {};
+
+                this.setupEventListeners();
+            }
+
+            setupEventListeners() {
+                window.addEventListener('keydown', (e) => this.keys[e.key] = true);
+                window.addEventListener('keyup', (e) => this.keys[e.key] = false);
+                this.canvas.addEventListener('click', (e) => this.handleClick(e));
+            }
+
+            handleClick(e) {
+                if (this.showBackpack) {
+                    const rect = this.canvas.getBoundingClientRect();
+                    const x = e.clientX - rect.left;
+                    const y = e.clientY - rect.top;
+                    // Implement backpack click logic here
+                }
+            }
+
+            tryCollectFruit() {
+                for (const fruit of this.world.fruits) {
+                    if (this.player.x === fruit.x && this.player.y === fruit.y && fruit.regrowTime === null) {
+                        if (this.player.collectFruit()) {
+                            fruit.collect(performance.now());
+                        }
+                        break;
+                    }
+                }
+            }
+
+            handleMovement() {
+                const dx = (this.keys['d'] ? 1 : 0) - (this.keys['a'] ? 1 : 0);
+                const dy = (this.keys['s'] ? 1 : 0) - (this.keys['w'] ? 1 : 0);
+                if (dx !== 0 || dy !== 0) {
+                    this.player.move(dx, dy, this.world);
+                }
+            }
+
+            drawBackpack() {
+                // Implement backpack drawing here
+            }
+
+            draw() {
+                this.ctx.fillStyle = COLORS.BLACK;
+                this.ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+
+                this.world.draw(this.ctx);
+
+                // Draw player
+                this.ctx.fillStyle = COLORS.RED;
+                this.ctx.fillRect(
+                    SCREEN_WIDTH / 2 - PLAYER_SIZE / 2,
+                    SCREEN_HEIGHT / 2 - PLAYER_SIZE / 2,
+                    PLAYER_SIZE,
+                    PLAYER_SIZE
+                );
+
+                // Draw health bar
+                const healthWidth = (SCREEN_WIDTH - 20) * (this.player.health / MAX_HEALTH);
+                this.ctx.fillStyle = COLORS.RED;
+                this.ctx.fillRect(10, 10, SCREEN_WIDTH - 20, 20);
+                this.ctx.fillStyle = COLORS.GREEN;
+                this.ctx.fillRect(10, 10, healthWidth, 20);
+
+                if (this.showBackpack) {
+                    this.drawBackpack();
+                }
+
+                if (this.player.health === 0) {
+                    this.ctx.fillStyle = COLORS.WHITE;
+                    this.ctx.font = '36px Arial';
+                    const text = 'Game Over! Press R to restart';
+                    const textWidth = this.ctx.measureText(text).width;
+                    this.ctx.fillText(text, SCREEN_WIDTH / 2 - textWidth / 2, SCREEN_HEIGHT / 2);
+                }
+            }
+
+            update() {
+                const currentTime = performance.now();
+                if (this.player.health > 0) {
+                    this.handleMovement();
+                }
+                this.world.update(currentTime);
+            }
+
+            gameLoop() {
+                this.update();
+                this.draw();
+                requestAnimationFrame(() => this.gameLoop());
+            }
+
+            run() {
+                this.gameLoop();
+            }
+        }
+
+        const game = new Game();
+        game.run();
+    </script>
+</body>
+</html>
